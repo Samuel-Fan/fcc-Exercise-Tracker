@@ -24,7 +24,7 @@ const exerciseSchema = new mongoose.Schema({
   id: {type:String, required: true},
   description: {type: String, required: true},
   duration:{type: Number, required: true},
-  date: String
+  date: Date
 },{versionKey: false})
 
 const User = mongoose.model('User',userSchema);
@@ -59,7 +59,8 @@ const queryExercise = (id, from, to, limit) => {
   .find({id: id})
   .select({_id: 0, id:0})
   .limit(limit);
-  
+}
+
 // API
 // create a new user
 app.post('/api/users', async (req, res) => {
@@ -73,7 +74,7 @@ app.post('/api/users', async (req, res) => {
   res.json({username: userInfo.username, _id: userInfo._id}); 
 })
 
-// create a new sport
+// create a new activity
 app.post('/api/users/:_id/exercises', async (req,res) => {
 
   let id = req.body[':_id'] || req.params._id;
@@ -100,16 +101,15 @@ app.post('/api/users/:_id/exercises', async (req,res) => {
     // if user found
     if (userInfo !== undefined) {
       let username = userInfo.username;
-      let dateString = date.toDateString();
       // save data
       
-      let exerciseInfo = await saveExercise(id, description, duration, dateString);
+      let exerciseInfo = await saveExercise(id, description, duration, date);
       console.log("save exercise data", exerciseInfo )
 
       res.json({
         _id: id,
         username: username,
-        date: dateString, 
+        date: date.toDateString(), 
         duration: duration,
         description: description
       });
@@ -133,11 +133,9 @@ app.get('/api/users/:_id/logs', async (req, res) => {
   try {
     // query data
     let id = req.params['_id'];
-    let from = new Date(req.params.from || -8640000000000000).toDateString();
-    let to = new Date(req.params.to || +8640000000000000).toDateString();
-    let limit = req.params.limit || Number.MAX_SAFE_INTEGER;
-
-    console.log(from, to ,limit);
+    let from = new Date(req.query.from || -8640000000000000);
+    let to = new Date(req.query.to || +8640000000000000);
+    let limit = Number(req.query.limit) || Number.MAX_SAFE_INTEGER;
 
     let username = (await queryById(id))[0].username;
     // if not found
@@ -145,15 +143,31 @@ app.get('/api/users/:_id/logs', async (req, res) => {
       res.json({error: "user not found"});
       return;
     }
+
     // get additional info
-    console.log("log data");
-    let exerciseInfo = await queryExercise(id, from, to, limit);
-    res.json({
-      _id: id,
-      username: username,
-      count: exerciseInfo.length,
-      log: exerciseInfo
-    })
+
+    let exerciseInfo = Exercise.find({id: id})
+      .find({date: { $gte: from }, date: { $lte: to}})
+      .select({_id: 0, id:0})
+      .limit(limit)
+      .exec((err, data)=> {
+ 
+        let dataConvert = data.map(n => {
+          return Object.assign(
+            {},
+            {description: n.description},
+            {duration: n.duration},
+            {date: n.date.toDateString()}
+          );
+        })
+
+        res.json({
+          _id: id,
+          username: username,
+          count: dataConvert.length,
+          log: dataConvert
+        })
+      })
   } catch(err) {
     res.json(err);
   }
