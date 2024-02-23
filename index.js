@@ -17,28 +17,28 @@ app.get('/', (req, res) => {
 
 // Mongodb setting
 const userSchema = new mongoose.Schema({
-  name: {type: String, required: true}
-})
+  username: {type: String, required: true}
+},{versionKey: false})
 
 const exerciseSchema = new mongoose.Schema({
-  _id: {type:String, required: true},
+  id: {type:String, required: true},
   description: {type: String, required: true},
   duration:{type: Number, required: true},
   date: String
-})
+},{versionKey: false})
 
 const User = mongoose.model('User',userSchema);
 const Exercise = mongoose.model('exercise',exerciseSchema);
 
 // Mongoose function
 const saveUser = (name) => {
-  let person = new User({name: name});
+  let person = new User({username: name});
   return person.save();
 }
 
 const saveExercise = (id,description,duration,date) => {
   let exercise = new Exercise({
-    _id: id,
+    id: id,
     description: description,
     duration: duration,
     date: date
@@ -47,13 +47,19 @@ const saveExercise = (id,description,duration,date) => {
 }
 
 const queryByName = (name) => {
-  return User.find({name: name});
+  return User.find({username: name});
 }
 
 const queryById = (id) => {
   return User.find({_id: id});
 }
 
+const queryExercise = (id, from, to, limit) => {
+  return Exercise
+  .find({id: id})
+  .select({_id: 0, id:0})
+  .limit(limit);
+  
 // API
 // create a new user
 app.post('/api/users', async (req, res) => {
@@ -64,26 +70,23 @@ app.post('/api/users', async (req, res) => {
     userInfo = await saveUser(user);
     console.log("save user data", userInfo);
   } 
-  res.json({username: userInfo.name, _id: userInfo._id}); 
+  res.json({username: userInfo.username, _id: userInfo._id}); 
 })
 
 // create a new sport
 app.post('/api/users/:_id/exercises', async (req,res) => {
-  let id = req.body[':_id'];
+
+  let id = req.body[':_id'] || req.params._id;
   let description = req.body.description;
-  let duration = req.body.duration;
+  let duration = Number(req.body.duration);
   let date;
+
   if (req.body.date) {
     date = new Date(req.body.date);
   } else {
     date = new Date();
   }
-  // check if description and duration exsit?
-  //if (!description && !duration) {
-  //  res.json({error: })
-  //}
-  // check _id format to avoid search error
-  
+
   let regex = /[a-z0-9]{23}/i
   if (!regex.test(id)) {
     res.json({error: "user not found"});
@@ -96,10 +99,11 @@ app.post('/api/users/:_id/exercises', async (req,res) => {
 
     // if user found
     if (userInfo !== undefined) {
-      let username = userInfo.name;
+      let username = userInfo.username;
       let dateString = date.toDateString();
       // save data
-      let exerciseInfo = await saveExercise(id, description, duration, date);
+      
+      let exerciseInfo = await saveExercise(id, description, duration, dateString);
       console.log("save exercise data", exerciseInfo )
 
       res.json({
@@ -113,6 +117,44 @@ app.post('/api/users/:_id/exercises', async (req,res) => {
       res.json({error: "user not found"});
     }
   } catch (err) {
+    res.json(err);
+  }
+})
+
+// get method - all users
+app.get('/api/users', async (req, res) => {
+  let data = await User.find({});
+  res.json(data);
+})
+
+
+// get method - exercise data of specific id
+app.get('/api/users/:_id/logs', async (req, res) => {
+  try {
+    // query data
+    let id = req.params['_id'];
+    let from = new Date(req.params.from || -8640000000000000).toDateString();
+    let to = new Date(req.params.to || +8640000000000000).toDateString();
+    let limit = req.params.limit || Number.MAX_SAFE_INTEGER;
+
+    console.log(from, to ,limit);
+
+    let username = (await queryById(id))[0].username;
+    // if not found
+    if (username === undefined) {
+      res.json({error: "user not found"});
+      return;
+    }
+    // get additional info
+    console.log("log data");
+    let exerciseInfo = await queryExercise(id, from, to, limit);
+    res.json({
+      _id: id,
+      username: username,
+      count: exerciseInfo.length,
+      log: exerciseInfo
+    })
+  } catch(err) {
     res.json(err);
   }
 })
